@@ -1,0 +1,2 @@
+CInP client for Go
+==================
