@@ -177,8 +177,9 @@ func (c *CInP) request(verb string, uri string, data map[string]interface{}, hea
 // Describe structu definiation
 type Describe struct {
 	Type string
-	Name string
-	Doc  string
+	Name string `json:"name"`
+	Doc  string `json:"doc"`
+	Path string `json:"path"`
 	// Field/Paramater
 	// Length         int         `length`
 	// URI            string      `uri`
@@ -189,10 +190,9 @@ type Describe struct {
 	// Mode           string  `mode`
 	// Required       bool    `required`
 	// Namespace
-	Path        string
-	APIVersion  string
-	MultiURIMax int
-	Namespaces  []string
+	APIVersion  string   `json:"api-version"`
+	MultiURIMax int      `json:"multi-uri-max"`
+	Namespaces  []string `json:"namespaces"`
 	Models      []string `json:"models"`
 	// Model
 	Constants         []string `json:constants`
@@ -236,11 +236,15 @@ func (c *CInP) Describe(uri string) (*Describe, error) {
 	}
 
 	if v, ok := data["multi-uri-max"]; ok {
-		result.MultiURIMax = v.(int)
+		result.MultiURIMax = int(v.(float64))
 	}
 
 	if v, ok := data["namespaces"]; ok {
-		result.Namespaces = v.([]string)
+		item := v.([]interface{})
+		result.Namespaces = make([]string, len(item))
+		for k := range item {
+			result.Namespaces[k] = item[k].(string)
+		}
 	}
 
 	return result, nil
