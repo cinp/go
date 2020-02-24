@@ -223,6 +223,50 @@ func TestURISplitBuild(t *testing.T) {
 	}
 }
 
+func TestURIExtractURI(t *testing.T) {
+	u, err := NewURI("/api/v1/")
+	if err != nil {
+		t.Errorf("Unexpected error '%s'", err)
+		t.FailNow()
+	}
+
+	badList := [][]string{[]string{"api/v1"}, []string{"/api/v2/sd/sdf:d:"}}
+	for _, v := range badList {
+		_, err := u.ExtractIds(v)
+		if err == nil {
+			t.Errorf("Missing error '%s' for '%s'", err, v)
+			t.FailNow()
+		}
+	}
+
+	emptyList := [][]string{[]string{}, []string{"/api/v1/"}, []string{"/api/v1/sdf/sdf"}}
+	for _, v := range emptyList {
+		r, err := u.ExtractIds(v)
+		if err != nil {
+			t.Errorf("Unexpected error '%s' for '%s'", err, v)
+			t.FailNow()
+		}
+		if len(r) != 0 {
+			t.Errorf("Expected '[]' got '%s' for '%s'", r, v)
+			t.FailNow()
+		}
+	}
+
+	aList := [][]string{[]string{"/api/v1/nbs/model:d:efef:123:"}, []string{"/api/v1/nbs/model:d:", "/api/v1/nbs/model:efef:", "/api/v1/nbs/model:123:"}}
+	aCmp := []string{"d", "efef", "123"}
+	for _, v := range aList {
+		r, err := u.ExtractIds(v)
+		if err != nil {
+			t.Errorf("Unexpected error '%s' for '%s'", err, v)
+			t.FailNow()
+		}
+		if !reflect.DeepEqual(r, aCmp) {
+			t.Errorf("Expected '%s' got '%s' for '%s'", aCmp, r, v)
+			t.FailNow()
+		}
+	}
+}
+
 func TestNewClient(t *testing.T) {
 	var goodHostList = []string{"http://host", "https://host"}
 	var badHostList = []string{"htt://host", "http//host", "http://host/", "https://host/"}
@@ -308,7 +352,8 @@ func TestRequest(t *testing.T) {
 		t.FailNow()
 	}
 
-	_, _, _, err = c.request("GET", "/api/v1/ns/model", nil, nil)
+	data := map[string]interface{}{}
+	_, _, err = c.request("GET", "/api/v1/ns/model", nil, &data, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -340,7 +385,7 @@ func TestRequest(t *testing.T) {
 	}
 
 	c.SetAuth("the user", "the token")
-	_, _, _, err = c.request("GET", "/api/v1/ns/model", nil, nil)
+	_, _, err = c.request("GET", "/api/v1/ns/model", nil, &data, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -362,7 +407,7 @@ func TestRequest(t *testing.T) {
 	delete(compareReqHeaders, "Auth-Id")
 	delete(compareReqHeaders, "Auth-Token")
 	c.SetAuth("", "")
-	_, _, _, err = c.request("GET", "/api/v1/ns/model", nil, nil)
+	_, _, err = c.request("GET", "/api/v1/ns/model", nil, &data, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -377,7 +422,7 @@ func TestRequest(t *testing.T) {
 		t.FailNow()
 	}
 
-	_, _, _, err = c.request("BOB", "/api/v1/ns/model:123:(23)", nil, nil)
+	_, _, err = c.request("BOB", "/api/v1/ns/model:123:(23)", nil, &data, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -395,7 +440,7 @@ func TestRequest(t *testing.T) {
 		t.FailNow()
 	}
 
-	_, _, _, err = c.request("GET", "/api", nil, map[string]string{"hdr": "val", "top": "bottom"})
+	_, _, err = c.request("GET", "/api", nil, &data, map[string]string{"hdr": "val", "top": "bottom"})
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -416,8 +461,9 @@ func TestRequest(t *testing.T) {
 	delete(compareReqHeaders, "Hdr")
 	delete(compareReqHeaders, "Top")
 
+	respDataOut := map[string]interface{}{}
 	respData = []byte("{\"a\": \"bob\"}")
-	code, resp, _, err := c.request("GET", "/api", map[string]interface{}{"stuff": "jane"}, nil)
+	code, _, err := c.request("GET", "/api", &map[string]interface{}{"stuff": "jane"}, &respDataOut, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -430,12 +476,12 @@ func TestRequest(t *testing.T) {
 		t.Errorf("got wrong data body, got '%s'", reqData[0:reqDataLen])
 		t.FailNow()
 	}
-	if !reflect.DeepEqual(resp, map[string]interface{}{"a": "bob"}) {
-		t.Errorf("returned result wrong, got '%s'", resp)
+	if !reflect.DeepEqual(respDataOut, map[string]interface{}{"a": "bob"}) {
+		t.Errorf("returned result wrong, got '%s'", respDataOut)
 		t.FailNow()
 	}
 
-	_, _, _, err = c.request("GET", "/api", map[string]interface{}{"stuff": func() {}}, nil)
+	_, _, err = c.request("GET", "/api", &map[string]interface{}{"stuff": func() {}}, &data, nil)
 	if err == nil {
 		t.Errorf("error missing")
 		t.FailNow()
