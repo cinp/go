@@ -92,6 +92,11 @@ func (cinp *CInP) SetAuth(authID string, authToken string) {
 	cinp.authToken = authToken
 }
 
+// IsAuthenticated return true if the authID is set
+func (cinp *CInP) IsAuthenticated() bool {
+	return cinp.authID != ""
+}
+
 func (cinp *CInP) request(verb string, uri string, data *map[string]interface{}, result interface{}, headers map[string]string) (int, map[string]string, error) {
 	var body []byte
 
@@ -244,7 +249,7 @@ func (cinp *CInP) Describe(uri string) (*Describe, string, error) {
 type Object interface {
 	GetID() string
 	SetID(string)
-	AsMap() *map[string]interface{}
+	AsMap(bool) *map[string]interface{}
 }
 
 // BaseObject is
@@ -269,7 +274,7 @@ type MappedObject struct {
 }
 
 // AsMap exports the Object's Data as a map
-func (mo *MappedObject) AsMap() *map[string]interface{} {
+func (mo *MappedObject) AsMap(isCreate bool) *map[string]interface{} {
 	return &mo.Data
 }
 
@@ -474,7 +479,8 @@ func (cinp *CInP) Get(uri string) (*Object, error) {
 
 // Create an object with the values
 func (cinp *CInP) Create(uri string, object Object) error {
-	code, headers, err := cinp.request("CREATE", uri, object.AsMap(), object, nil)
+	values := object.AsMap(true)
+	code, headers, err := cinp.request("CREATE", uri, values, object, nil)
 	if err != nil {
 		return err
 	}
@@ -500,13 +506,13 @@ func (cinp *CInP) Create(uri string, object Object) error {
 // Update sends the values of the object to be updated, if the Multi-Object header is set on the result, this will error out.
 // NOTE: the updated values the server sends back will  be pushed into the object
 func (cinp *CInP) Update(object Object, fieldList []string) error {
-	values := object.AsMap()
+	values := object.AsMap(false)
 	if fieldList != nil {
 	top:
 		for k := range *values {
 			for _, v := range fieldList {
 				if k == v {
-					break top
+					continue top
 				}
 			}
 			delete(*values, k)
@@ -516,7 +522,6 @@ func (cinp *CInP) Update(object Object, fieldList []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("|||||")
 
 	if code != 200 {
 		return fmt.Errorf("Unexpected HTTP code '%d'", code)
