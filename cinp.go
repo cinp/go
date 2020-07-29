@@ -222,7 +222,7 @@ type Describe struct {
 	Constants         map[string]string           `json:"constants"`
 	Fields            []FieldParamater            `json:"fields"`
 	Actions           []string                    `json:"actions"`
-	NotAllowedMethods []string                    `json:"not-allowed-metods"`
+	NotAllowedMethods []string                    `json:"not-allowed-methods"`
 	ListFilters       map[string][]FieldParamater `json:"list-filters"`
 	// Actions
 	ReturnType FieldParamater   `json:"return-type"`
