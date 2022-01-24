@@ -123,7 +123,7 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 	req.Header.Set("User-Agent", "golang CInP client")
 	req.Header.Set("Accepts", "application/json")
 	req.Header.Set("Accept-Charset", "utf-8")
-	req.Header.Set("CInP-Version", "0.9")
+	req.Header.Set("CInP-Version", "1.0")
 	if cinp.authID != "" {
 		req.Header.Set("Auth-Id", cinp.authID)
 		req.Header.Set("Auth-Token", cinp.authToken)

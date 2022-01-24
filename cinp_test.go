@@ -371,7 +371,7 @@ func TestRequest(t *testing.T) {
 		t.FailNow()
 	}
 	var compareReqHeaders = map[string]string{
-		"Cinp-Version":   "0.9",
+		"Cinp-Version":   "1.0",
 		"Content-Type":   "application/json;charset=utf-8",
 		"User-Agent":     "golang CInP client",
 		"Accepts":        "application/json",
