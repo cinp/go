@@ -18,8 +18,7 @@ type CInP struct {
 	host         string
 	uri          *URI
 	proxy        string
-	authID       string
-	authToken    string
+	headers      map[string]string
 	typeRegistry map[string]reflect.Type
 }
 
@@ -79,22 +78,13 @@ func NewCInP(host string, rootPath string, proxy string) (*CInP, error) {
 	cinp.host = host
 	cinp.uri = u
 	cinp.proxy = proxy
-	cinp.authID = ""
-	cinp.authToken = ""
 	cinp.typeRegistry = map[string]reflect.Type{}
 
 	return &cinp, nil
 }
 
-// SetAuth sets the auth info, set authId to "" to clear
-func (cinp *CInP) SetAuth(authID string, authToken string) {
-	cinp.authID = authID
-	cinp.authToken = authToken
-}
-
-// IsAuthenticated return true if the authID is set
-func (cinp *CInP) IsAuthenticated() bool {
-	return cinp.authID != ""
+func (cinp *CInP) setHeader(name string, value string) {
+	cinp.headers[name] = value
 }
 
 func (cinp *CInP) request(verb string, uri string, data *map[string]interface{}, result interface{}, headers map[string]string) (int, map[string]string, error) {
@@ -117,6 +107,9 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 		return 0, nil, err
 	}
 
+	for k, v := range cinp.headers { // this must go first so the semi-untrusted "user" dosen't mess with the important stuff
+		req.Header.Set(k, v)
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -124,10 +117,6 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 	req.Header.Set("Accepts", "application/json")
 	req.Header.Set("Accept-Charset", "utf-8")
 	req.Header.Set("CInP-Version", "1.0")
-	if cinp.authID != "" {
-		req.Header.Set("Auth-Id", cinp.authID)
-		req.Header.Set("Auth-Token", cinp.authToken)
-	}
 	req.Header.Set("Content-Type", "application/json;charset=utf-8")
 
 	res, err := client.Do(req)
@@ -398,7 +387,7 @@ func (cinp *CInP) ListObjects(uri string, objectType reflect.Type, filterName st
 				// not sure what to do with the error
 				break
 			}
-			// TODO: bemore effecient and use GetMulti
+			// TODO: be more effecient and use GetMulti
 			//       My golang fu is not good enough to figure out how to make, return, pass, and iterate over a map made with refelect.Type
 			//       perhaps there is another way to get it to work, for now do this very ugly get one at a time mess
 			for _, id := range ids {

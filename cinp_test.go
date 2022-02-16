@@ -310,19 +310,6 @@ func TestNewClient(t *testing.T) {
 	}
 }
 
-func TestSetAuth(t *testing.T) {
-	c, err := NewCInP("http://host", "/api/v1/", "")
-	if err != nil {
-		t.Errorf("Unexpected error '%s'", err)
-		t.FailNow()
-	}
-	c.SetAuth("auth id", "auth token")
-	if c.authID != "auth id" || c.authToken != "auth token" {
-		t.Errorf("Set auth  mismatch")
-		t.FailNow()
-	}
-}
-
 func TestRequest(t *testing.T) {
 	var reqURL string
 	var reqMethod string
@@ -384,14 +371,6 @@ func TestRequest(t *testing.T) {
 		}
 	}
 
-	c.SetAuth("the user", "the token")
-	_, _, err = c.request("GET", "/api/v1/ns/model", nil, &data, nil)
-	if err != nil {
-		t.Errorf("Unexpected error '%s'", err)
-		t.FailNow()
-	}
-	compareReqHeaders["Auth-Id"] = "the user"
-	compareReqHeaders["Auth-Token"] = "the token"
 	for k, v := range compareReqHeaders {
 		_, ok := reqHeaders[k]
 		if !ok {
@@ -402,24 +381,6 @@ func TestRequest(t *testing.T) {
 			t.Errorf("Invalid Header '%s' expected '%s' got '%s'", k, v, reqHeaders[k])
 			t.FailNow()
 		}
-	}
-
-	delete(compareReqHeaders, "Auth-Id")
-	delete(compareReqHeaders, "Auth-Token")
-	c.SetAuth("", "")
-	_, _, err = c.request("GET", "/api/v1/ns/model", nil, &data, nil)
-	if err != nil {
-		t.Errorf("Unexpected error '%s'", err)
-		t.FailNow()
-	}
-
-	if _, ok := reqHeaders["Auth-Id"]; ok {
-		t.Errorf("Auth-Id present")
-		t.FailNow()
-	}
-	if _, ok := reqHeaders["Auth-Token"]; ok {
-		t.Errorf("Auth-Token present")
-		t.FailNow()
 	}
 
 	_, _, err = c.request("BOB", "/api/v1/ns/model:123:(23)", nil, &data, nil)
