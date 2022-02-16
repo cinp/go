@@ -83,7 +83,8 @@ func NewCInP(host string, rootPath string, proxy string) (*CInP, error) {
 	return &cinp, nil
 }
 
-func (cinp *CInP) setHeader(name string, value string) {
+// SetHeader sets a request header
+func (cinp *CInP) SetHeader(name string, value string) {
 	cinp.headers[name] = value
 }
 
