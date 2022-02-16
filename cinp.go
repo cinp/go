@@ -79,6 +79,7 @@ func NewCInP(host string, rootPath string, proxy string) (*CInP, error) {
 	cinp.uri = u
 	cinp.proxy = proxy
 	cinp.typeRegistry = map[string]reflect.Type{}
+	cinp.headers = map[string]string{}
 
 	return &cinp, nil
 }
@@ -93,7 +94,7 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 
 	if data != nil {
 		var err error
-		body, err = json.Marshal(data)
+		body, err = marshalJSON(data)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -734,4 +735,12 @@ func (u *URI) UpdateIDs(uri string, ids []string) (string, error) {
 	}
 
 	return u.Build(ns, model, action, ids), nil
+}
+
+func marshalJSON(t interface{}) ([]byte, error) { // b/c the standard library turns on HTML escaping by default.... why?
+	buffer := &bytes.Buffer{}
+	encoder := json.NewEncoder(buffer)
+	encoder.SetEscapeHTML(false)
+	err := encoder.Encode(t)
+	return buffer.Bytes(), err
 }
