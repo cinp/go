@@ -39,7 +39,7 @@ type NotFound struct{}
 
 func (e *NotFound) Error() string { return "Not Found" }
 
-// InvalidRequest is a error that is returned when the request is Invalid
+// InvalidRequest is a error that is returned when the request is Invalid, this needs to be updated to match the rust/python clients
 type InvalidRequest struct {
 	msg string
 }
