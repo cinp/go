@@ -89,6 +89,11 @@ func (cinp *CInP) SetHeader(name string, value string) {
 	cinp.headers[name] = value
 }
 
+// ClearHeader sets a request header
+func (cinp *CInP) ClearHeader(name string) {
+	delete(cinp.headers, name)
+}
+
 func (cinp *CInP) request(verb string, uri string, data *map[string]interface{}, result interface{}, headers map[string]string) (int, map[string]string, error) {
 	var body []byte
 
