@@ -2,9 +2,11 @@ package cinp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -20,6 +22,7 @@ type CInP struct {
 	proxy        string
 	headers      map[string]string
 	typeRegistry map[string]reflect.Type
+	log          *slog.Logger
 }
 
 const httpTrue = "True"
@@ -60,7 +63,7 @@ func (e *ServerError) Error() string {
 }
 
 // NewCInP creates a new cinp instance
-func NewCInP(host string, rootPath string, proxy string) (*CInP, error) {
+func NewCInP(log *slog.Logger, host string, rootPath string, proxy string) (*CInP, error) {
 	if !(strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://")) {
 		return nil, errors.New("host does not start with http(s)://")
 	}
@@ -69,41 +72,50 @@ func NewCInP(host string, rootPath string, proxy string) (*CInP, error) {
 		return nil, errors.New("host name must not end with '/'")
 	}
 
-	u, err := NewURI(rootPath)
+	uri, err := NewURI(rootPath)
 	if err != nil {
 		return nil, err
 	}
 
 	cinp := CInP{}
 	cinp.host = host
-	cinp.uri = u
+	cinp.uri = uri
 	cinp.proxy = proxy
 	cinp.typeRegistry = map[string]reflect.Type{}
 	cinp.headers = map[string]string{}
+	cinp.log = log
+
+	cinp.log.Info("New client", "host", host)
 
 	return &cinp, nil
 }
 
 // SetHeader sets a request header
 func (cinp *CInP) SetHeader(name string, value string) {
+	cinp.log.Debug("Set Header", "name", name)
 	cinp.headers[name] = value
 }
 
 // ClearHeader sets a request header
 func (cinp *CInP) ClearHeader(name string) {
+	cinp.log.Debug("Clearing Header", "name", name)
 	delete(cinp.headers, name)
 }
 
-func (cinp *CInP) request(verb string, uri string, data *map[string]interface{}, result interface{}, headers map[string]string) (int, map[string]string, error) {
+func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn interface{}, dataOut interface{}, headers map[string]string) (int, map[string]string, error) {
 	var body []byte
 
-	if data != nil {
+	cinp.log.Debug("request", "extra headers", headers)
+
+	if dataIn != nil {
 		var err error
-		body, err = marshalJSON(data)
+		body, err = marshalJSON(dataIn)
 		if err != nil {
 			return 0, nil, err
 		}
 	}
+
+	cinp.log.Debug("request", slog.Any("data", body)) // TODO: Limit the size of the data that is logged
 
 	client := http.Client{
 		Timeout: time.Second * 30,
@@ -113,6 +125,8 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 	if err != nil {
 		return 0, nil, err
 	}
+
+	req = req.WithContext(ctx)
 
 	for k, v := range cinp.headers { // this must go first so the semi-untrusted "user" dosen't mess with the important stuff
 		req.Header.Set(k, v)
@@ -130,6 +144,9 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 	if err != nil {
 		return 0, nil, err
 	}
+
+	cinp.log.Debug("result", slog.Int("code", res.StatusCode))
+	cinp.log.Debug("result", slog.Any("data", res.Body)) // TODO: how to get a copy of the first bit of the content without messing up the decoder
 
 	switch res.StatusCode {
 	case 401:
@@ -153,7 +170,7 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 
 		err = json.NewDecoder(res.Body).Decode(&resultData)
 		if err != nil && err.Error() != "EOF" {
-			return 0, nil, fmt.Errorf("Unable to parse response '%s' with code '%d'", err, res.StatusCode)
+			return 0, nil, fmt.Errorf("unable to parse response '%s' with code '%d'", err, res.StatusCode)
 		}
 
 		if res.StatusCode == 400 {
@@ -174,16 +191,19 @@ func (cinp *CInP) request(verb string, uri string, data *map[string]interface{},
 		return 0, nil, &ServerError{fmt.Sprintf("%v", resultData), ""}
 	}
 
-	resultHeaders := make(map[string]string)
-
-	err = json.NewDecoder(res.Body).Decode(result)
-	if err != nil && err.Error() != "EOF" {
-		return 0, nil, fmt.Errorf("Unable to parse response '%s'", err)
+	if dataOut != nil {
+		err = json.NewDecoder(res.Body).Decode(dataOut)
+		if err != nil && err.Error() != "EOF" {
+			return 0, nil, fmt.Errorf("unable to parse response '%s'", err)
+		}
 	}
 
+	resultHeaders := make(map[string]string)
 	for _, v := range []string{"Position", "Count", "Total", "Type", "Multi-Object", "Object-Id", "verb"} {
 		resultHeaders[v] = res.Header.Get(v)
 	}
+
+	cinp.log.Debug("result", "headers", resultHeaders)
 
 	return res.StatusCode, resultHeaders, nil
 }
@@ -227,15 +247,17 @@ type Describe struct {
 }
 
 // Describe the URI
-func (cinp *CInP) Describe(uri string) (*Describe, string, error) {
+func (cinp *CInP) Describe(ctx context.Context, uri string) (*Describe, string, error) {
 	result := &Describe{}
-	code, headers, err := cinp.request("DESCRIBE", uri, nil, result, nil)
+	cinp.log.Info("DESCRIBE", "uri", uri)
+
+	code, headers, err := cinp.request(ctx, "DESCRIBE", uri, nil, result, nil)
 	if err != nil {
 		return nil, "", err
 	}
 
 	if code != 200 {
-		return nil, "", fmt.Errorf("Unexpected HTTP Code '%d' for DESCRIBE", code)
+		return nil, "", fmt.Errorf("unexpected HTTP Code '%d' for DESCRIBE", code)
 	}
 
 	return result, headers["Type"], nil
@@ -243,24 +265,23 @@ func (cinp *CInP) Describe(uri string) (*Describe, string, error) {
 
 // Object used for handeling objects
 type Object interface {
-	GetID() string
-	SetID(string)
-	AsMap(bool) *map[string]interface{}
+	GetURI() string
+	SetURI(string)
 }
 
 // BaseObject is
 type BaseObject struct {
-	id string
+	uri string `json:"-"`
 }
 
-// GetID return the id of the object
-func (baseobject *BaseObject) GetID() string {
-	return baseobject.id
+// GetURI return the URI of the object
+func (baseobject *BaseObject) GetURI() string {
+	return baseobject.uri
 }
 
-// SetID set the id of the object
-func (baseobject *BaseObject) SetID(id string) {
-	baseobject.id = id
+// SetURI sets the URI of the object
+func (baseobject *BaseObject) SetURI(uri string) {
+	baseobject.uri = uri
 }
 
 // MappedObject for generic Object Manipluation
@@ -309,10 +330,10 @@ func (cinp *CInP) newObject(uri string) Object {
 }
 
 // List objects
-func (cinp *CInP) List(uri string, filterName string, filterValues map[string]interface{}, position int, count int) ([]string, int, int, int, error) {
+func (cinp *CInP) List(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, position int, count int) ([]string, int, int, int, error) {
 	result := []string{}
 	if position < 0 || count < 0 {
-		return nil, 0, 0, 0, fmt.Errorf("Position and count must be greater than 0")
+		return nil, 0, 0, 0, fmt.Errorf("position and count must be greater than 0")
 	}
 
 	headers := map[string]string{"Position": strconv.Itoa(position), "Count": strconv.Itoa(count)}
@@ -320,13 +341,15 @@ func (cinp *CInP) List(uri string, filterName string, filterValues map[string]in
 		headers["Filter"] = filterName
 	}
 
-	code, headers, err := cinp.request("LIST", uri, &filterValues, &result, headers)
+	cinp.log.Info("LIST", "uri", uri)
+
+	code, headers, err := cinp.request(ctx, "LIST", uri, &filterValues, &result, headers)
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
 
 	if code != 200 {
-		return nil, 0, 0, 0, fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return nil, 0, 0, 0, fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 	var total int
 	if position, err = strconv.Atoi(headers["Position"]); err != nil {
@@ -343,7 +366,7 @@ func (cinp *CInP) List(uri string, filterName string, filterValues map[string]in
 }
 
 // ListIds List Objects and return in a channel
-func (cinp *CInP) ListIds(uri string, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan string {
+func (cinp *CInP) ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan string {
 	if chunkSize < 1 {
 		chunkSize = 50
 	}
@@ -356,7 +379,7 @@ func (cinp *CInP) ListIds(uri string, filterName string, filterValues map[string
 		position := 0
 		total := 1
 		for position < total {
-			items, position, count, total, err = cinp.List(uri, filterName, filterValues, position, chunkSize)
+			items, position, count, total, err = cinp.List(ctx, uri, filterName, filterValues, position, chunkSize)
 			if err != nil {
 				// not sure what to do with the error
 				break
@@ -371,11 +394,11 @@ func (cinp *CInP) ListIds(uri string, filterName string, filterValues map[string
 }
 
 // ListObjects List Objects and return in a channel
-func (cinp *CInP) ListObjects(uri string, objectType reflect.Type, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan Object {
+func (cinp *CInP) ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan *Object {
 	if chunkSize < 1 { // TODO: if chunkSize > max-ids  set chunkSize = max-ids
 		chunkSize = 50
 	}
-	ch := make(chan Object)
+	ch := make(chan *Object)
 	go func() {
 		defer close(ch)
 		var itemList []string
@@ -384,7 +407,7 @@ func (cinp *CInP) ListObjects(uri string, objectType reflect.Type, filterName st
 		position := 0
 		total := 1
 		for position < total {
-			itemList, position, count, total, err = cinp.List(uri, filterName, filterValues, position, chunkSize)
+			itemList, position, count, total, err = cinp.List(ctx, uri, filterName, filterValues, position, chunkSize)
 			if err != nil {
 				// not sure what to do with the error
 				break
@@ -398,12 +421,12 @@ func (cinp *CInP) ListObjects(uri string, objectType reflect.Type, filterName st
 			//       My golang fu is not good enough to figure out how to make, return, pass, and iterate over a map made with refelect.Type
 			//       perhaps there is another way to get it to work, for now do this very ugly get one at a time mess
 			for _, id := range ids {
-				object, err := cinp.Get(uri + ":" + id + ":")
+				object, err := cinp.Get(ctx, uri+":"+id+":")
 				if err != nil {
 					// not sure what to do with the error
 					break
 				}
-				ch <- *object
+				ch <- object
 			}
 			// fmt.Println(ids)
 			// objList, err := cinp.GetMulti(uri + ":" + strings.Join(ids, ":") + ":")
@@ -422,30 +445,32 @@ func (cinp *CInP) ListObjects(uri string, objectType reflect.Type, filterName st
 }
 
 // Get gets an object from the URI, if the Multi-Object header is set on the result, this will error out
-func (cinp *CInP) Get(uri string) (*Object, error) {
+func (cinp *CInP) Get(ctx context.Context, uri string) (*Object, error) {
 	var err error
 	var code int
 	var headers map[string]string
 
+	cinp.log.Info("GET", "uri", uri)
+
 	result := cinp.newObject(uri)
 	if mo, ok := result.(*MappedObject); ok {
-		code, headers, err = cinp.request("GET", uri, nil, &mo.Data, nil)
+		code, headers, err = cinp.request(ctx, "GET", uri, nil, &mo.Data, nil)
 	} else {
-		code, headers, err = cinp.request("GET", uri, nil, result, nil)
+		code, headers, err = cinp.request(ctx, "GET", uri, nil, result, nil)
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	if code != 200 {
-		return nil, fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return nil, fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	if headers["Multi-Object"] == httpTrue {
-		return nil, fmt.Errorf("Detected multi object")
+		return nil, fmt.Errorf("detected multi object")
 	}
 
-	result.SetID(uri)
+	result.SetURI(uri)
 
 	return &result, nil
 }
@@ -474,142 +499,145 @@ func (cinp *CInP) Get(uri string) (*Object, error) {
 // }
 
 // Create an object with the values
-func (cinp *CInP) Create(uri string, object Object) error {
-	values := object.AsMap(true)
-	code, headers, err := cinp.request("CREATE", uri, values, object, nil)
+func (cinp *CInP) Create(ctx context.Context, uri string, object Object) (*Object, error) {
+	cinp.log.Info("CREATE", "uri", uri)
+
+	code, headers, err := cinp.request(ctx, "CREATE", uri, object, object, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if code != 201 {
-		return fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return nil, fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	_, _, _, ids, _, err := cinp.Split(headers["Object-Id"])
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if ids != nil && len(ids) != 1 {
-		return fmt.Errorf("Create did not create any/one object")
+		return nil, fmt.Errorf("Create did not create any/one object")
 	}
 
-	object.SetID(headers["Object-Id"])
+	object.SetURI(headers["Object-Id"])
 
-	return nil
+	return &object, nil
 }
 
 // Update sends the values of the object to be updated, if the Multi-Object header is set on the result, this will error out.
 // NOTE: the updated values the server sends back will  be pushed into the object
-func (cinp *CInP) Update(object Object, fieldList []string) error {
-	values := object.AsMap(false)
-	if fieldList != nil {
-	top:
-		for k := range *values {
-			for _, v := range fieldList {
-				if k == v {
-					continue top
-				}
-			}
-			delete(*values, k)
-		}
-	}
-	code, headers, err := cinp.request("UPDATE", object.GetID(), values, object, nil)
+func (cinp *CInP) Update(ctx context.Context, object Object) (*Object, error) {
+	cinp.log.Info("UPDATE", "object", object.GetURI())
+
+	code, headers, err := cinp.request(ctx, "UPDATE", object.GetURI(), object, object, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if code != 200 {
-		return fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return nil, fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	if headers["Multi-Object"] == httpTrue {
-		return fmt.Errorf("Detected multi object")
+		return nil, fmt.Errorf("detected multi object")
 	}
 
-	return nil
+	return &object, nil
 }
 
 // UpdateMulti update the objects with the values, forces the Muti-Object header
-func (cinp *CInP) UpdateMulti(uri string, values *map[string]interface{}, result *map[string]Object) error {
+func (cinp *CInP) UpdateMulti(ctx context.Context, uri string, values *map[string]interface{}, result *map[string]Object) error {
 	headers := map[string]string{"Multi-Object": "True"}
-	code, headers, err := cinp.request("UPDATE", uri, values, result, headers)
+
+	cinp.log.Info("UPDATE(multi)", "uri", uri)
+
+	code, headers, err := cinp.request(ctx, "UPDATE", uri, values, result, headers)
 	if err != nil {
 		return err
 	}
 
 	if code != 200 {
-		return fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	if headers["Multi-Object"] != httpTrue {
-		return fmt.Errorf("None Multi result detected")
+		return fmt.Errorf("no multi result detected")
 	}
 
 	return nil
 }
 
 // Delete the object
-func (cinp *CInP) Delete(object Object) error {
-	code, _, err := cinp.request("DELETE", object.GetID(), nil, nil, nil)
+func (cinp *CInP) Delete(ctx context.Context, object Object) error {
+
+	cinp.log.Info("DELETE", "object", object.GetURI())
+
+	code, _, err := cinp.request(ctx, "DELETE", object.GetURI(), nil, nil, nil)
 	if err != nil {
 		return err
 	}
 
 	if code != 200 {
-		return fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	return nil
 }
 
 // DeleteURI the object(s) from the URI
-func (cinp *CInP) DeleteURI(uri string) error {
-	code, _, err := cinp.request("DELETE", uri, nil, nil, nil)
+func (cinp *CInP) DeleteURI(ctx context.Context, uri string) error {
+
+	cinp.log.Info("DELETE", "uri", uri)
+
+	code, _, err := cinp.request(ctx, "DELETE", uri, nil, nil, nil)
 	if err != nil {
 		return err
 	}
 
 	if code != 200 {
-		return fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	return nil
 }
 
 // Call calls an object/class method from the URI, if the Multi-Object header is set on the result, this will error out
-func (cinp *CInP) Call(uri string, args *map[string]interface{}, result interface{}) error {
-	code, headers, err := cinp.request("CALL", uri, args, result, nil)
+func (cinp *CInP) Call(ctx context.Context, uri string, args *map[string]interface{}, result interface{}) error {
+	cinp.log.Info("CALL", "uri", uri)
+
+	code, headers, err := cinp.request(ctx, "CALL", uri, args, result, nil)
 	if err != nil {
 		return err
 	}
 
 	if code != 200 {
-		return fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	if headers["Multi-Object"] == httpTrue {
-		return fmt.Errorf("Detected multi object")
+		return fmt.Errorf("detected multi object")
 	}
 
 	return nil
 }
 
 // CallMulti calls an object/class method from the URI, forces the Muti-Object header
-func (cinp *CInP) CallMulti(uri string, args *map[string]interface{}) (*map[string]map[string]interface{}, error) {
+func (cinp *CInP) CallMulti(ctx context.Context, uri string, args *map[string]interface{}) (*map[string]map[string]interface{}, error) {
 	result := map[string]map[string]interface{}{}
 	headers := map[string]string{"Multi-Object": "True"}
-	code, headers, err := cinp.request("CALL", uri, args, &result, headers)
+	cinp.log.Info("CALL(multi)", "uri", uri)
+	code, headers, err := cinp.request(ctx, "CALL", uri, args, &result, headers)
 	if err != nil {
 		return nil, err
 	}
 
 	if code != 200 {
-		return nil, fmt.Errorf("Unexpected HTTP code '%d'", code)
+		return nil, fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	if headers["Multi-Object"] != httpTrue {
-		return nil, fmt.Errorf("None Multi result detected")
+		return nil, fmt.Errorf("no multi result detected")
 	}
 
 	return &result, nil
@@ -639,7 +667,7 @@ type URI struct {
 // NewURI creates and initilizes a URI instance
 func NewURI(rootPath string) (*URI, error) {
 	if rootPath == "" || rootPath[len(rootPath)-1] != '/' || rootPath[0] != '/' {
-		return nil, errors.New("rootPath must start and end with '/'")
+		return nil, errors.New("root path must start and end with '/'")
 	}
 
 	r, err := regexp.Compile("^(" + rootPath + ")(([a-zA-Z0-9\\-_.!~*]+/)*)([a-zA-Z0-9\\-_.!~*]+)?(:([a-zA-Z0-9\\-_.!~*\\']*:)*)?(\\([a-zA-Z0-9\\-_.!~*]+\\))?$")
@@ -658,7 +686,7 @@ func NewURI(rootPath string) (*URI, error) {
 func (u *URI) Split(uri string) ([]string, string, string, []string, bool, error) {
 	groups := u.uriRegex.FindStringSubmatch(uri)
 	if len(groups) < 8 {
-		return nil, "", "", nil, false, fmt.Errorf("Unable to parse URI '%s'", uri)
+		return nil, "", "", nil, false, fmt.Errorf("unable to parse URI '%s'", uri)
 	}
 
 	//( _, root, namespace, _, model, rec_id, _, action ) = groups
@@ -703,7 +731,7 @@ func (u *URI) Build(namespace []string, model string, action string, ids []strin
 
 	result += model
 
-	if ids != nil && len(ids) > 0 {
+	if len(ids) > 0 {
 		result += ":" + strings.Join(ids, ":") + ":"
 	}
 
@@ -720,7 +748,7 @@ func (u *URI) ExtractIds(uriList []string) ([]string, error) {
 	for _, v := range uriList {
 		groups := u.uriRegex.FindStringSubmatch(v)
 		if len(groups) < 8 {
-			return nil, fmt.Errorf("Unable to parse URI '%s'", v)
+			return nil, fmt.Errorf("unable to parse URI '%s'", v)
 		}
 		if groups[5] != "" {
 			for _, v := range strings.Split(strings.Trim(groups[5], ":"), ":") {

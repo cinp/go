@@ -2,11 +2,17 @@ package cinp
 
 import (
 	"bytes"
+	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 )
+
+func getLogger() *slog.Logger {
+	return slog.Default()
+}
 
 func TestNewURI(t *testing.T) {
 	var goodList = []string{"/api/v1/", "/"}
@@ -272,7 +278,7 @@ func TestNewClient(t *testing.T) {
 	var badHostList = []string{"htt://host", "http//host", "http://host/", "https://host/"}
 
 	for _, v := range goodHostList {
-		c, err := NewCInP(v, "/api/v1/", "")
+		c, err := NewCInP(getLogger(), v, "/api/v1/", "")
 		if err != nil {
 			t.Errorf("Unexpected error '%s'", err)
 			t.FailNow()
@@ -284,7 +290,7 @@ func TestNewClient(t *testing.T) {
 	}
 
 	for _, v := range badHostList {
-		_, err := NewCInP(v, "/api/v1/", "")
+		_, err := NewCInP(getLogger(), v, "/api/v1/", "")
 		if err == nil {
 			t.Errorf("Error Missing")
 			t.FailNow()
@@ -294,7 +300,7 @@ func TestNewClient(t *testing.T) {
 	var goodPathList = []string{"/api/v1/"}
 	var badPathList = []string{"api/v1/", "/api/v1", "api/v1"}
 	for _, v := range goodPathList {
-		_, err := NewCInP("http://host", v, "")
+		_, err := NewCInP(getLogger(), "http://host", v, "")
 		if err != nil {
 			t.Errorf("Unexpected error '%s'", err)
 			t.FailNow()
@@ -302,7 +308,7 @@ func TestNewClient(t *testing.T) {
 	}
 
 	for _, v := range badPathList {
-		_, err := NewCInP("http://host", v, "")
+		_, err := NewCInP(getLogger(), "http://host", v, "")
 		if err == nil {
 			t.Errorf("Missing Error")
 			t.FailNow()
@@ -333,14 +339,14 @@ func TestRequest(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	c, err := NewCInP(server.URL, "/api/v1/", "")
+	c, err := NewCInP(getLogger(), server.URL, "/api/v1/", "")
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
 	}
 
 	data := map[string]interface{}{}
-	_, _, err = c.request("GET", "/api/v1/ns/model", nil, &data, nil)
+	_, _, err = c.request(context.TODO(), "GET", "/api/v1/ns/model", nil, &data, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -383,7 +389,7 @@ func TestRequest(t *testing.T) {
 		}
 	}
 
-	_, _, err = c.request("BOB", "/api/v1/ns/model:123:(23)", nil, &data, nil)
+	_, _, err = c.request(context.TODO(), "BOB", "/api/v1/ns/model:123:(23)", nil, &data, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -401,7 +407,7 @@ func TestRequest(t *testing.T) {
 		t.FailNow()
 	}
 
-	_, _, err = c.request("GET", "/api", nil, &data, map[string]string{"hdr": "val", "top": "bottom"})
+	_, _, err = c.request(context.TODO(), "GET", "/api", nil, &data, map[string]string{"hdr": "val", "top": "bottom"})
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -424,7 +430,7 @@ func TestRequest(t *testing.T) {
 
 	respDataOut := map[string]interface{}{}
 	respData = []byte("{\"a\": \"bob\"}")
-	code, _, err := c.request("GET", "/api", &map[string]interface{}{"stuff": "jane"}, &respDataOut, nil)
+	code, _, err := c.request(context.TODO(), "GET", "/api", &map[string]interface{}{"stuff": "jane"}, &respDataOut, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%s'", err)
 		t.FailNow()
@@ -432,9 +438,9 @@ func TestRequest(t *testing.T) {
 	if code != 200 {
 		t.Errorf("got wrong code, expected '0' got '%d'", code)
 	}
-	cmp := []byte("{\"stuff\":\"jane\"}")
+	cmp := []byte("{\"stuff\":\"jane\"}\n")
 	if bytes.Compare(reqData[0:reqDataLen], cmp) != 0 {
-		t.Errorf("got wrong data body, got '%s'", reqData[0:reqDataLen])
+		t.Errorf("got wrong data body, got '%s' exptected '%s'", reqData[0:reqDataLen], cmp)
 		t.FailNow()
 	}
 	if !reflect.DeepEqual(respDataOut, map[string]interface{}{"a": "bob"}) {
@@ -442,7 +448,7 @@ func TestRequest(t *testing.T) {
 		t.FailNow()
 	}
 
-	_, _, err = c.request("GET", "/api", &map[string]interface{}{"stuff": func() {}}, &data, nil)
+	_, _, err = c.request(context.TODO(), "GET", "/api", &map[string]interface{}{"stuff": func() {}}, &data, nil)
 	if err == nil {
 		t.Errorf("error missing")
 		t.FailNow()
