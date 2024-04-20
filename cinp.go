@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -115,7 +116,13 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn i
 		}
 	}
 
-	cinp.log.Debug("request", slog.Any("data", body)) // TODO: Limit the size of the data that is logged
+	if len(body) > 500 {
+		bodyCopy := make([]byte, 500)
+		_ = copy(bodyCopy, body[0:500])
+		cinp.log.Debug("request", slog.Any("data", append(bodyCopy, []byte("...")...)))
+	} else {
+		cinp.log.Debug("request", slog.Any("data", body))
+	}
 
 	client := http.Client{
 		Timeout: time.Second * 30,
@@ -146,7 +153,9 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn i
 	}
 
 	cinp.log.Debug("result", slog.Int("code", res.StatusCode))
-	cinp.log.Debug("result", slog.Any("data", res.Body)) // TODO: how to get a copy of the first bit of the content without messing up the decoder
+
+	logReader := NewReaderForLogging(500)
+	bodyReader := io.TeeReader(res.Body, logReader)
 
 	switch res.StatusCode {
 	case 401:
@@ -168,7 +177,7 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn i
 
 		var resultData map[string]interface{}
 
-		err = json.NewDecoder(res.Body).Decode(&resultData)
+		err = json.NewDecoder(bodyReader).Decode(&resultData)
 		if err != nil && err.Error() != "EOF" {
 			return 0, nil, fmt.Errorf("unable to parse response '%s' with code '%d'", err, res.StatusCode)
 		}
@@ -192,7 +201,7 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn i
 	}
 
 	if dataOut != nil {
-		err = json.NewDecoder(res.Body).Decode(dataOut)
+		err = json.NewDecoder(bodyReader).Decode(dataOut)
 		if err != nil && err.Error() != "EOF" {
 			return 0, nil, fmt.Errorf("unable to parse response '%s'", err)
 		}
@@ -204,6 +213,7 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn i
 	}
 
 	cinp.log.Debug("result", "headers", resultHeaders)
+	cinp.log.Debug("result", slog.Any("data", logReader.LogValue()))
 
 	return res.StatusCode, resultHeaders, nil
 }
@@ -751,9 +761,7 @@ func (u *URI) ExtractIds(uriList []string) ([]string, error) {
 			return nil, fmt.Errorf("unable to parse URI '%s'", v)
 		}
 		if groups[5] != "" {
-			for _, v := range strings.Split(strings.Trim(groups[5], ":"), ":") {
-				result = append(result, v)
-			}
+			result = append(result, strings.Split(strings.Trim(groups[5], ":"), ":")...)
 		}
 	}
 
@@ -776,4 +784,30 @@ func marshalJSON(t interface{}) ([]byte, error) { // b/c the standard library tu
 	encoder.SetEscapeHTML(false)
 	err := encoder.Encode(t)
 	return buffer.Bytes(), err
+}
+
+type ReaderForLogging struct {
+	cap  int
+	buff *bytes.Buffer
+}
+
+func NewReaderForLogging(cap int) *ReaderForLogging {
+	return &ReaderForLogging{buff: new(bytes.Buffer), cap: cap}
+}
+
+// Write to buffer, if we are full ignore the more data
+func (r *ReaderForLogging) Write(buff []byte) (int, error) {
+	if r.buff.Len() >= r.cap {
+		return 0, nil
+	}
+	toRead := min(len(buff), (r.cap - r.buff.Len()))
+	r.buff.Write(buff[0:toRead])
+	return toRead, nil
+}
+
+func (r *ReaderForLogging) LogValue() []byte {
+	if r.buff.Len() >= r.cap {
+		return append(r.buff.Bytes(), []byte("...")...)
+	}
+	return r.buff.Bytes()
 }

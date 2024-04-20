@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"testing"
 )
 
 func getLogger() *slog.Logger {
-	return slog.Default()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	return logger
 }
 
 func TestNewURI(t *testing.T) {
@@ -236,7 +238,7 @@ func TestURIExtractURI(t *testing.T) {
 		t.FailNow()
 	}
 
-	badList := [][]string{[]string{"api/v1"}, []string{"/api/v2/sd/sdf:d:"}}
+	badList := [][]string{{"api/v1"}, {"/api/v2/sd/sdf:d:"}}
 	for _, v := range badList {
 		_, err := u.ExtractIds(v)
 		if err == nil {
@@ -245,7 +247,7 @@ func TestURIExtractURI(t *testing.T) {
 		}
 	}
 
-	emptyList := [][]string{[]string{}, []string{"/api/v1/"}, []string{"/api/v1/sdf/sdf"}}
+	emptyList := [][]string{{}, {"/api/v1/"}, {"/api/v1/sdf/sdf"}}
 	for _, v := range emptyList {
 		r, err := u.ExtractIds(v)
 		if err != nil {
@@ -258,7 +260,7 @@ func TestURIExtractURI(t *testing.T) {
 		}
 	}
 
-	aList := [][]string{[]string{"/api/v1/nbs/model:d:efef:123:"}, []string{"/api/v1/nbs/model:d:", "/api/v1/nbs/model:efef:", "/api/v1/nbs/model:123:"}}
+	aList := [][]string{{"/api/v1/nbs/model:d:efef:123:"}, {"/api/v1/nbs/model:d:", "/api/v1/nbs/model:efef:", "/api/v1/nbs/model:123:"}}
 	aCmp := []string{"d", "efef", "123"}
 	for _, v := range aList {
 		r, err := u.ExtractIds(v)
@@ -439,7 +441,7 @@ func TestRequest(t *testing.T) {
 		t.Errorf("got wrong code, expected '0' got '%d'", code)
 	}
 	cmp := []byte("{\"stuff\":\"jane\"}\n")
-	if bytes.Compare(reqData[0:reqDataLen], cmp) != 0 {
+	if !bytes.Equal(reqData[0:reqDataLen], cmp) {
 		t.Errorf("got wrong data body, got '%s' exptected '%s'", reqData[0:reqDataLen], cmp)
 		t.FailNow()
 	}
@@ -451,6 +453,70 @@ func TestRequest(t *testing.T) {
 	_, _, err = c.request(context.TODO(), "GET", "/api", &map[string]interface{}{"stuff": func() {}}, &data, nil)
 	if err == nil {
 		t.Errorf("error missing")
+		t.FailNow()
+	}
+}
+
+func TestLogging(t *testing.T) {
+	var respData []byte
+	var reqData []byte
+	var reqDataLen int
+
+	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		reqData = make([]byte, 40960)
+		reqDataLen, _ = req.Body.Read(reqData)
+		req.Body.Close()
+		written, err := rw.Write(respData)
+		if err != nil {
+			t.Errorf("Unexpected error '%s'", err)
+			t.FailNow()
+		}
+		if written != len(respData) {
+			t.Errorf("Not all bytes were written, expected %d, wrote %d", len(respData), written)
+			t.FailNow()
+		}
+	})
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	c, err := NewCInP(getLogger(), server.URL, "/api/v1/", "")
+	if err != nil {
+		t.Errorf("Unexpected error '%s'", err)
+		t.FailNow()
+	}
+
+	respDataOut := map[string]interface{}{}
+	respData = []byte("{")
+	reqDataIn := map[int]interface{}{}
+	for i := 1; i <= 1000; i++ {
+		reqDataIn[i] = "This is a Bunch of filler data"
+		respData = append(respData, []byte("\"a\": \"Even More filler data\", ")...)
+	}
+	respData = append(respData, []byte("\"end\": \"The End\"}")...)
+	// just making sure the logging doesn't lock up on very large requests and responses
+	code, _, err := c.request(context.TODO(), "GET", "/api", &reqDataIn, &respDataOut, nil)
+	if err != nil {
+		t.Errorf("Unexpected error '%s'", err)
+		t.FailNow()
+	}
+	if code != 200 {
+		t.Errorf("got wrong code, expected '0' got '%d'", code)
+		t.FailNow()
+	}
+
+	cmp, err := marshalJSON(reqDataIn)
+	if err != nil {
+		t.Errorf("Unexpected error '%s'", err)
+		t.FailNow()
+	}
+	if !bytes.Equal(reqData[0:reqDataLen], cmp[0:reqDataLen]) {
+		t.Errorf("got wrong data body, got '%s' exptected '%s'", reqData[0:reqDataLen], cmp[0:reqDataLen])
+		t.FailNow()
+	}
+
+	if !reflect.DeepEqual(respDataOut, map[string]interface{}{"a": "Even More filler data", "end": "The End"}) {
+		t.Errorf("returned result wrong, got '%s'", respDataOut)
 		t.FailNow()
 	}
 }
