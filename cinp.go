@@ -16,6 +16,22 @@ import (
 	"time"
 )
 
+type CInPClient interface {
+	SetHeader(name string, value string)
+	ClearHeader(name string)
+	Describe(ctx context.Context, uri string) (*Describe, string, error)
+	List(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, position int, count int) ([]string, int, int, int, error)
+	ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan string
+	Get(ctx context.Context, uri string) (*Object, error)
+	Create(ctx context.Context, uri string, object Object) (*Object, error)
+	Update(ctx context.Context, object Object) (*Object, error)
+	UpdateMulti(ctx context.Context, uri string, values *map[string]interface{}, result *map[string]Object) error
+	Delete(ctx context.Context, object Object) error
+	DeleteURI(ctx context.Context, uri string) error
+	Call(ctx context.Context, uri string, args *map[string]interface{}, result interface{}) error
+	CallMulti(ctx context.Context, uri string, args *map[string]interface{}) (*map[string]map[string]interface{}, error)
+}
+
 // CInP client struct
 type CInP struct {
 	host         string
