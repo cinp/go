@@ -19,9 +19,11 @@ import (
 type CInPClient interface {
 	SetHeader(name string, value string)
 	ClearHeader(name string)
+	RegisterType(uri string, objectType reflect.Type)
 	Describe(ctx context.Context, uri string) (*Describe, string, error)
 	List(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, position int, count int) ([]string, int, int, int, error)
 	ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan string
+	ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan *Object
 	Get(ctx context.Context, uri string) (*Object, error)
 	Create(ctx context.Context, uri string, object Object) (*Object, error)
 	Update(ctx context.Context, object Object) (*Object, error)
@@ -30,6 +32,9 @@ type CInPClient interface {
 	DeleteURI(ctx context.Context, uri string) error
 	Call(ctx context.Context, uri string, args *map[string]interface{}, result interface{}) error
 	CallMulti(ctx context.Context, uri string, args *map[string]interface{}) (*map[string]map[string]interface{}, error)
+	ExtractIds(uriList []string) ([]string, error)
+	Split(uri string) ([]string, string, string, []string, bool, error)
+	UpdateIDs(uri string, ids []string) (string, error)
 }
 
 // CInP client struct
