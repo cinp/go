@@ -32,9 +32,7 @@ type CInPClient interface {
 	DeleteURI(ctx context.Context, uri string) error
 	Call(ctx context.Context, uri string, args *map[string]interface{}, result interface{}) error
 	CallMulti(ctx context.Context, uri string, args *map[string]interface{}) (*map[string]map[string]interface{}, error)
-	ExtractIds(uriList []string) ([]string, error)
-	Split(uri string) ([]string, string, string, []string, bool, error)
-	UpdateIDs(uri string, ids []string) (string, error)
+	GetURI() *URI
 }
 
 // CInP client struct
@@ -122,6 +120,11 @@ func (cinp *CInP) SetHeader(name string, value string) {
 func (cinp *CInP) ClearHeader(name string) {
 	cinp.log.Debug("Clearing Header", "name", name)
 	delete(cinp.headers, name)
+}
+
+// GetURI get the uri
+func (cinp *CInP) GetURI() *URI {
+	return cinp.uri
 }
 
 func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn interface{}, dataOut interface{}, headers map[string]string) (int, map[string]string, error) {
@@ -443,7 +446,7 @@ func (cinp *CInP) ListObjects(ctx context.Context, uri string, objectType reflec
 				// not sure what to do with the error
 				break
 			}
-			ids, err := cinp.ExtractIds(itemList)
+			ids, err := cinp.uri.ExtractIds(itemList)
 			if err != nil {
 				// not sure what to do with the error
 				break
@@ -542,7 +545,7 @@ func (cinp *CInP) Create(ctx context.Context, uri string, object Object) (*Objec
 		return nil, fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
-	_, _, _, ids, _, err := cinp.Split(headers["Object-Id"])
+	_, _, _, ids, _, err := cinp.uri.Split(headers["Object-Id"])
 	if err != nil {
 		return nil, err
 	}
@@ -674,21 +677,6 @@ func (cinp *CInP) CallMulti(ctx context.Context, uri string, args *map[string]in
 	return &result, nil
 }
 
-// ExtractIds extract the id(s) from a list of URI
-func (cinp *CInP) ExtractIds(uriList []string) ([]string, error) {
-	return cinp.uri.ExtractIds(uriList)
-}
-
-// Split the uri into it's parts
-func (cinp *CInP) Split(uri string) ([]string, string, string, []string, bool, error) {
-	return cinp.uri.Split(uri)
-}
-
-// UpdateIDs update/set the id(s) in the uri
-func (cinp *CInP) UpdateIDs(uri string, ids []string) (string, error) {
-	return cinp.uri.UpdateIDs(uri, ids)
-}
-
 // URI is for parsing and checking CNiP URIs
 type URI struct {
 	rootPath string
@@ -799,6 +787,7 @@ func (u *URI) UpdateIDs(uri string, ids []string) (string, error) {
 	return u.Build(ns, model, action, ids), nil
 }
 
+// helper functions and types
 func marshalJSON(t interface{}) ([]byte, error) { // b/c the standard library turns on HTML escaping by default.... why?
 	buffer := &bytes.Buffer{}
 	encoder := json.NewEncoder(buffer)
@@ -831,4 +820,17 @@ func (r *ReaderForLogging) LogValue() []byte {
 		return append(r.buff.Bytes(), []byte("...")...)
 	}
 	return r.buff.Bytes()
+}
+
+// convenience functions
+func StringAddr(v string) *string {
+	return &v
+}
+
+func IntAddr(v int) *int {
+	return &v
+}
+
+func BoolAddr(v bool) *bool {
+	return &v
 }
