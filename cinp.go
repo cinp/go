@@ -21,17 +21,17 @@ type CInPClient interface {
 	ClearHeader(name string)
 	RegisterType(uri string, objectType reflect.Type)
 	Describe(ctx context.Context, uri string) (*Describe, string, error)
-	List(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, position int, count int) ([]string, int, int, int, error)
-	ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan string
-	ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan *Object
+	List(ctx context.Context, uri string, filterName string, filterValues map[string]any, position int, count int) ([]string, int, int, int, error)
+	ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]any, chunkSize int) <-chan string
+	ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]any, chunkSize int) <-chan *Object
 	Get(ctx context.Context, uri string) (*Object, error)
 	Create(ctx context.Context, uri string, object Object) (*Object, error)
 	Update(ctx context.Context, object Object) (*Object, error)
-	UpdateMulti(ctx context.Context, uri string, values *map[string]interface{}, result *map[string]Object) error
+	UpdateMulti(ctx context.Context, uri string, values *map[string]any, result *map[string]Object) error
 	Delete(ctx context.Context, object Object) error
 	DeleteURI(ctx context.Context, uri string) error
-	Call(ctx context.Context, uri string, args *map[string]interface{}, result interface{}) error
-	CallMulti(ctx context.Context, uri string, args *map[string]interface{}) (*map[string]map[string]interface{}, error)
+	Call(ctx context.Context, uri string, args *map[string]any, result any) error
+	CallMulti(ctx context.Context, uri string, args *map[string]any) (*map[string]map[string]any, error)
 	GetURI() *URI
 }
 
@@ -127,7 +127,7 @@ func (cinp *CInP) GetURI() *URI {
 	return cinp.uri
 }
 
-func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn interface{}, dataOut interface{}, headers map[string]string) (int, map[string]string, error) {
+func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn any, dataOut any, headers map[string]string) (int, map[string]string, error) {
 	var body []byte
 
 	cinp.log.Debug("request", "extra headers", headers)
@@ -199,7 +199,7 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn i
 		// solution is found, see cinp/python/client.py for how to deal with the not JSON
 		// responses
 
-		var resultData map[string]interface{}
+		var resultData map[string]any
 
 		err = json.NewDecoder(bodyReader).Decode(&resultData)
 		if err != nil && err.Error() != "EOF" {
@@ -244,18 +244,18 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn i
 
 // FieldParamater defines a Field or Paramater from the describe
 type FieldParamater struct {
-	Name           string        `json:"name"`
-	Doc            string        `json:"doc"`
-	Path           string        `json:"path"`
-	Type           string        `json:"type"`
-	Length         int           `json:"length"`
-	URI            string        `json:"uri"`
-	AllowedSchemes []string      `json:"allowed_schemes"`
-	Choices        []interface{} `json:"choices"`
-	IsArray        bool          `json:"is_array"`
-	Default        interface{}   `json:"default"`
-	Mode           string        `json:"mode"`
-	Required       bool          `json:"required"`
+	Name           string   `json:"name"`
+	Doc            string   `json:"doc"`
+	Path           string   `json:"path"`
+	Type           string   `json:"type"`
+	Length         int      `json:"length"`
+	URI            string   `json:"uri"`
+	AllowedSchemes []string `json:"allowed_schemes"`
+	Choices        []any    `json:"choices"`
+	IsArray        bool     `json:"is_array"`
+	Default        any      `json:"default"`
+	Mode           string   `json:"mode"`
+	Required       bool     `json:"required"`
 }
 
 // Describe struct definiation
@@ -321,11 +321,11 @@ func (baseobject *BaseObject) SetURI(uri string) {
 // MappedObject for generic Object Manipluation
 type MappedObject struct {
 	BaseObject
-	Data map[string]interface{}
+	Data map[string]any
 }
 
 // AsMap exports the Object's Data as a map
-func (mo *MappedObject) AsMap(isCreate bool) *map[string]interface{} {
+func (mo *MappedObject) AsMap(isCreate bool) *map[string]any {
 	return &mo.Data
 }
 
@@ -364,7 +364,7 @@ func (cinp *CInP) newObject(uri string) Object {
 }
 
 // List objects
-func (cinp *CInP) List(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, position int, count int) ([]string, int, int, int, error) {
+func (cinp *CInP) List(ctx context.Context, uri string, filterName string, filterValues map[string]any, position int, count int) ([]string, int, int, int, error) {
 	result := []string{}
 	if position < 0 || count < 0 {
 		return nil, 0, 0, 0, fmt.Errorf("position and count must be greater than 0")
@@ -400,7 +400,7 @@ func (cinp *CInP) List(ctx context.Context, uri string, filterName string, filte
 }
 
 // ListIds List Objects and return in a channel
-func (cinp *CInP) ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan string {
+func (cinp *CInP) ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]any, chunkSize int) <-chan string {
 	if chunkSize < 1 {
 		chunkSize = 50
 	}
@@ -428,7 +428,7 @@ func (cinp *CInP) ListIds(ctx context.Context, uri string, filterName string, fi
 }
 
 // ListObjects List Objects and return in a channel
-func (cinp *CInP) ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]interface{}, chunkSize int) <-chan *Object {
+func (cinp *CInP) ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]any, chunkSize int) <-chan *Object {
 	if chunkSize < 1 { // TODO: if chunkSize > max-ids  set chunkSize = max-ids
 		chunkSize = 50
 	}
@@ -533,55 +533,56 @@ func (cinp *CInP) Get(ctx context.Context, uri string) (*Object, error) {
 // }
 
 // Create an object with the values
-func (cinp *CInP) Create(ctx context.Context, uri string, object Object) (*Object, error) {
+// NOTE: the updated values the server sends back will be pushed into the object
+func (cinp *CInP) Create(ctx context.Context, uri string, object Object) error {
 	cinp.log.Info("CREATE", "uri", uri)
 
 	code, headers, err := cinp.request(ctx, "CREATE", uri, object, object, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if code != 201 {
-		return nil, fmt.Errorf("unexpected HTTP code '%d'", code)
+		return fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	_, _, _, ids, _, err := cinp.uri.Split(headers["Object-Id"])
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if ids != nil && len(ids) != 1 {
-		return nil, fmt.Errorf("Create did not create any/one object")
+		return fmt.Errorf("Create did not create any/one object")
 	}
 
 	object.SetURI(headers["Object-Id"])
 
-	return &object, nil
+	return nil
 }
 
 // Update sends the values of the object to be updated, if the Multi-Object header is set on the result, this will error out.
-// NOTE: the updated values the server sends back will  be pushed into the object
-func (cinp *CInP) Update(ctx context.Context, object Object) (*Object, error) {
+// NOTE: the updated values the server sends back will be pushed into the object
+func (cinp *CInP) Update(ctx context.Context, object Object) error {
 	cinp.log.Info("UPDATE", "object", object.GetURI())
 
 	code, headers, err := cinp.request(ctx, "UPDATE", object.GetURI(), object, object, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if code != 200 {
-		return nil, fmt.Errorf("unexpected HTTP code '%d'", code)
+		return fmt.Errorf("unexpected HTTP code '%d'", code)
 	}
 
 	if headers["Multi-Object"] == httpTrue {
-		return nil, fmt.Errorf("detected multi object")
+		return fmt.Errorf("detected multi object")
 	}
 
-	return &object, nil
+	return nil
 }
 
 // UpdateMulti update the objects with the values, forces the Muti-Object header
-func (cinp *CInP) UpdateMulti(ctx context.Context, uri string, values *map[string]interface{}, result *map[string]Object) error {
+func (cinp *CInP) UpdateMulti(ctx context.Context, uri string, values *map[string]any, result *map[string]Object) error {
 	headers := map[string]string{"Multi-Object": "True"}
 
 	cinp.log.Info("UPDATE(multi)", "uri", uri)
@@ -637,7 +638,7 @@ func (cinp *CInP) DeleteURI(ctx context.Context, uri string) error {
 }
 
 // Call calls an object/class method from the URI, if the Multi-Object header is set on the result, this will error out
-func (cinp *CInP) Call(ctx context.Context, uri string, args *map[string]interface{}, result interface{}) error {
+func (cinp *CInP) Call(ctx context.Context, uri string, args *map[string]any, result any) error {
 	cinp.log.Info("CALL", "uri", uri)
 
 	code, headers, err := cinp.request(ctx, "CALL", uri, args, result, nil)
@@ -657,8 +658,8 @@ func (cinp *CInP) Call(ctx context.Context, uri string, args *map[string]interfa
 }
 
 // CallMulti calls an object/class method from the URI, forces the Muti-Object header
-func (cinp *CInP) CallMulti(ctx context.Context, uri string, args *map[string]interface{}) (*map[string]map[string]interface{}, error) {
-	result := map[string]map[string]interface{}{}
+func (cinp *CInP) CallMulti(ctx context.Context, uri string, args *map[string]any) (*map[string]map[string]any, error) {
+	result := map[string]map[string]any{}
 	headers := map[string]string{"Multi-Object": "True"}
 	cinp.log.Info("CALL(multi)", "uri", uri)
 	code, headers, err := cinp.request(ctx, "CALL", uri, args, &result, headers)
@@ -788,7 +789,7 @@ func (u *URI) UpdateIDs(uri string, ids []string) (string, error) {
 }
 
 // helper functions and types
-func marshalJSON(t interface{}) ([]byte, error) { // b/c the standard library turns on HTML escaping by default.... why?
+func marshalJSON(t any) ([]byte, error) { // b/c the standard library turns on HTML escaping by default
 	buffer := &bytes.Buffer{}
 	encoder := json.NewEncoder(buffer)
 	encoder.SetEscapeHTML(false)
@@ -832,5 +833,9 @@ func IntAddr(v int) *int {
 }
 
 func BoolAddr(v bool) *bool {
+	return &v
+}
+
+func TimeAddr(v time.Time) *time.Time {
 	return &v
 }
