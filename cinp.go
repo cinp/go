@@ -25,8 +25,8 @@ type CInPClient interface {
 	ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]any, chunkSize int) <-chan string
 	ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]any, chunkSize int) <-chan *Object
 	Get(ctx context.Context, uri string) (*Object, error)
-	Create(ctx context.Context, uri string, object Object) (*Object, error)
-	Update(ctx context.Context, object Object) (*Object, error)
+	Create(ctx context.Context, uri string, object Object) (error)
+	Update(ctx context.Context, object Object) (error)
 	UpdateMulti(ctx context.Context, uri string, values *map[string]any, result *map[string]Object) error
 	Delete(ctx context.Context, object Object) error
 	DeleteURI(ctx context.Context, uri string) error
