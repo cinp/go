@@ -25,8 +25,8 @@ type CInPClient interface {
 	ListIds(ctx context.Context, uri string, filterName string, filterValues map[string]any, chunkSize int) <-chan string
 	ListObjects(ctx context.Context, uri string, objectType reflect.Type, filterName string, filterValues map[string]any, chunkSize int) <-chan *Object
 	Get(ctx context.Context, uri string) (*Object, error)
-	Create(ctx context.Context, uri string, object Object) (error)
-	Update(ctx context.Context, object Object) (error)
+	Create(ctx context.Context, uri string, object Object) error
+	Update(ctx context.Context, object Object) error
 	UpdateMulti(ctx context.Context, uri string, values *map[string]any, result *map[string]Object) error
 	Delete(ctx context.Context, object Object) error
 	DeleteURI(ctx context.Context, uri string) error
@@ -168,7 +168,7 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn a
 	req.Header.Set("User-Agent", "golang CInP client")
 	req.Header.Set("Accepts", "application/json")
 	req.Header.Set("Accept-Charset", "utf-8")
-	req.Header.Set("CInP-Version", "1.0")
+	req.Header.Set("CInP-Version", "2.0")
 	req.Header.Set("Content-Type", "application/json;charset=utf-8")
 
 	res, err := client.Do(req)
@@ -242,8 +242,8 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn a
 	return res.StatusCode, resultHeaders, nil
 }
 
-// FieldParamater defines a Field or Paramater from the describe
-type FieldParamater struct {
+// FieldParameter defines a Field or Parameter from the describe
+type FieldParameter struct {
 	Name           string   `json:"name"`
 	Doc            string   `json:"doc"`
 	Path           string   `json:"path"`
@@ -270,14 +270,14 @@ type Describe struct {
 	Models      []string `json:"models"`
 	// Model
 	Constants         map[string]string           `json:"constants"`
-	Fields            []FieldParamater            `json:"fields"`
+	Fields            []FieldParameter            `json:"fields"`
 	Actions           []string                    `json:"actions"`
 	NotAllowedMethods []string                    `json:"not-allowed-methods"`
-	ListFilters       map[string][]FieldParamater `json:"list-filters"`
+	ListFilters       map[string][]FieldParameter `json:"list-filters"`
 	// Actions
-	ReturnType FieldParamater   `json:"return-type"`
+	ReturnType FieldParameter   `json:"return-type"`
 	Static     bool             `json:"static"`
-	Paramaters []FieldParamater `json:"paramaters"`
+	Parameters []FieldParameter `json:"Parameters"`
 }
 
 // Describe the URI
@@ -737,7 +737,7 @@ func (u *URI) Split(uri string) ([]string, string, string, []string, bool, error
 	return namespaceList, groups[4], action, ids, multi, nil
 }
 
-// Build constructs a URI from the paramaters, NOTE: if model is "", ids and action are skiped
+// Build constructs a URI from the parameters, NOTE: if model is "", ids and action are skiped
 func (u *URI) Build(namespace []string, model string, action string, ids []string) string {
 	result := u.rootPath
 
