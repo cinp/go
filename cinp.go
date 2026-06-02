@@ -47,6 +47,9 @@ type CInP struct {
 
 const httpTrue = "True"
 
+// ProtocolVersion is the CInP protocol version this client implements
+const ProtocolVersion = "2.0"
+
 // InvalidSession is a error that is returned when the AuthId and AuthToken do not specifiy a valid session
 type InvalidSession struct{}
 
@@ -168,7 +171,7 @@ func (cinp *CInP) request(ctx context.Context, verb string, uri string, dataIn a
 	req.Header.Set("User-Agent", "golang CInP client")
 	req.Header.Set("Accepts", "application/json")
 	req.Header.Set("Accept-Charset", "utf-8")
-	req.Header.Set("CInP-Version", "2.0")
+	req.Header.Set("CInP-Version", ProtocolVersion)
 	req.Header.Set("Content-Type", "application/json;charset=utf-8")
 
 	res, err := client.Do(req)
